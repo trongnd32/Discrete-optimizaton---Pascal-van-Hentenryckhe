@@ -4,21 +4,24 @@ import random
 
 Customer = namedtuple("Customer", ['index', 'demand', 'x', 'y'])
 
-# GLOBAL VARS
+# GLOBAL VARIABLES
 customer_count = 0
 vehicle_count = 0
 vehicle_capacity = 0
 customers = []
 dis = []
+
 # GLS parameter
+# Phương pháp giải giả sử có một vehicle ảo, sức chứa vô hạn nhưng khi chở hàng bằng xe này sẽ tốn nhiều chi phí hơn
+# Chi phí trên vehicle ảo: dis_virtual[i][j] = (dis[i][j] + lamda * penalty[i][j]) * alpha1 + alpha2
 features = []
 penalty = []
 alpha1 = 1.025
 alpha2 = 0
 lamda = 0
 
-available = []
-vehicles = []
+available = []  # sức chứa còn lại của vehicle
+vehicles = []  # lời giải
 obj = 0.0
 aug_cost = 0.0
 
@@ -27,6 +30,7 @@ def length(customer1, customer2):
     return math.sqrt((customer1.x - customer2.x) ** 2 + (customer1.y - customer2.y) ** 2)
 
 
+# khởi tạo các biến của bài toán
 def init():
     global dis, available, features, penalty, alpha2
 
@@ -51,6 +55,7 @@ def init_lamda():
 
 
 # init greedy solution
+# với mỗi vehicle, chọn customer gần nhất mà vehicle đủ sức chứa cho đến khi không còn thêm được customer nào
 def init_solution():
     global obj, vehicles, aug_cost
     dd = [0 for _ in range(customer_count)]
@@ -68,7 +73,7 @@ def init_solution():
                     min_dis = dis[j][prev_idx]
                     min_idx = j
 
-            if min_idx == -1:
+            if min_idx == -1:  # không tìm được customer nào thoả mãn điều kiện sức chứa
                 break
             available[i] -= customers[min_idx].demand
             vehicles[i].append(min_idx)
@@ -81,6 +86,7 @@ def init_solution():
     aug_cost = obj
 
     # virtual vehicle
+    # các customer chưa vào vehicle nào thì vào virtual_vehicle
     vehicles.append([])
     vehicles[vehicle_count].append(0)
     prev_idx = 0
@@ -104,16 +110,19 @@ def init_solution():
     aug_cost += (dis[prev_idx][0] + lamda * penalty[0][prev_idx]) * alpha1 + alpha2
 
 
+# khởi động lại tìm kiếm bằng lời giải ngẫu nhiên thoả mãn ràng buộc sức chứa
 def restart_search():
     print("restart search")
     global obj, vehicles, aug_cost, available
 
+    # khởi tạo lại các giá trị liên quan đến lời giải
     available = [vehicle_capacity for _ in range(vehicle_count + 1)]
     dd = [i for i in range(1, customer_count)]
     obj = 0
     aug_cost = 0
     vehicles.clear()
 
+    # thêm ngẫu nhiên customer vào mỗi vehicle cho đến khi vehicle không đủ sức chứa thêm customer nào nữa
     for i in range(vehicle_count):
         vehicles.append([])
         vehicles[i].append(0)
@@ -141,7 +150,9 @@ def restart_search():
         vehicles[i].append(0)
         obj += dis[prev_idx][0]
         aug_cost += dis[prev_idx][0] + lamda * penalty[prev_idx][0]
+
     # virtual vehicle
+    # thêm hết customer còn lại vào virtual_vehicle
     vehicles.append([])
     vehicles[vehicle_count].append(0)
     prev_idx = 0
@@ -156,28 +167,31 @@ def restart_search():
 
 
 # get new cost when relocate customer_1 from vehicle_1 to vehicle_2
+# tính cost và aug_cost khi thực hiện di chuyển customer_1 từ xe vehicle_1 sang vehicle_2 (gọi là di chuyển relocate)
 # @return aug_cost_new, obj_new, idx_old, idx_new
+# trả về cost và aug_cost mới, vị trí của customer_1 ở vehicle_1 và vị trí tốt nhất của customer_1 khi chuyển sang vehicle_2
 def get_relocate_move_cost(customer_1, vehicle_1, vehicle_2):
-    if available[vehicle_2] < customers[customer_1].demand:
+    if available[vehicle_2] < customers[customer_1].demand:  # vi phạm điều kiện về sức chứa
         return -1, -1, -1, -1
 
     obj_new = obj
     aug_cost_new = aug_cost
     old_idx = -1
+    # tìm vị trí của customer_1 trong xe vehicle_1
     for i in range(1, len(vehicles[vehicle_1]) - 1, 1):
         if vehicles[vehicle_1][i] == customer_1:
             old_idx = i
             break
-    prev_cus = vehicles[vehicle_1][old_idx - 1]
-    next_cus = vehicles[vehicle_1][old_idx + 1]
+    prev_cus = vehicles[vehicle_1][old_idx - 1]  # customer đứng trước customer_1 trong vehicle_1
+    next_cus = vehicles[vehicle_1][old_idx + 1]  # customer đứng sau customer_1 trong vehicle_1
 
-    t1 = dis[prev_cus][customer_1] + dis[customer_1][next_cus]
-    t2 = dis[prev_cus][next_cus]
+    t1 = dis[prev_cus][customer_1] + dis[customer_1][next_cus]  # lượng mất đi trong cost nếu customer_1 rời vehicle_1
+    t2 = dis[prev_cus][next_cus]  # lượng thêm vào trong cost nếu customer_1 rời vehicle_1
 
-    aug_t1 = t1 + lamda * (penalty[prev_cus][customer_1] + penalty[customer_1][next_cus])
+    aug_t1 = t1 + lamda * (penalty[prev_cus][customer_1] + penalty[customer_1][next_cus])  # tương tự t1, t2 nhưng dành cho aug_cost
     aug_t2 = t2 + lamda * penalty[prev_cus][next_cus]
 
-    if vehicle_1 == vehicle_count:
+    if vehicle_1 == vehicle_count:  # nếu vehicle_1 là virtual_vehicle, cập nhật lại aug_cost theo công thức
         aug_t1 = aug_t1 * alpha1 + 2 * alpha2
         aug_t2 = aug_t2 * alpha1 + alpha2
 
@@ -187,17 +201,18 @@ def get_relocate_move_cost(customer_1, vehicle_1, vehicle_2):
         next_idx = vehicles[vehicle_2][i + 1]
         cur_idx = vehicles[vehicle_2][i]
 
-        t1_2 = dis[next_idx][cur_idx]
-        t2_2 = dis[cur_idx][customer_1] + dis[customer_1][next_idx]
+        t1_2 = dis[next_idx][cur_idx]  # lượng mất đi trong cost nếu customer_1 được thêm vào vị trí i+1 của vehicle_2
+        t2_2 = dis[cur_idx][customer_1] + dis[customer_1][next_idx]  # lượng thêm vào trong cost nếu ...
 
-        aug_t1_2 = t1_2 + lamda * penalty[next_idx][cur_idx]
+        aug_t1_2 = t1_2 + lamda * penalty[next_idx][cur_idx]  # tương tự t1_2, t2_2 nhưng cho aug_cost
         aug_t2_2 = t2_2 + lamda * (penalty[cur_idx][customer_1] + penalty[customer_1][next_idx])
-        diff = aug_t2 + aug_t2_2 - aug_t1 - aug_t1_2
+        diff = aug_t2 + aug_t2_2 - aug_t1 - aug_t1_2  # tổng lượng thay đổi của aug_cost nếu di chuyển customer_1 từ vehicle_1 sang vị trí i+1 trong vehicle_2
 
         if diff < min_diff:
             min_diff = diff
             new_idx = i
 
+    # cập nhật bước di chuyển tốt nhất
     aug_cost_new = aug_cost_new + min_diff
     next_idx = vehicles[vehicle_2][new_idx + 1]
     cur_idx = vehicles[vehicle_2][new_idx]
@@ -206,6 +221,8 @@ def get_relocate_move_cost(customer_1, vehicle_1, vehicle_2):
     return aug_cost_new, obj_new, old_idx, new_idx
 
 
+# thực hiện bước di chuyển customer_1 ở vị trí old_idx trên xe vehicle_1 sang vị trí new_idx trên xe vehicle_2
+# giá trị cost và aug_cost đã được tính từ trước
 def relocate_move(customer_1, vehicle_1, vehicle_2, aug_cost_new, obj_new, old_idx, new_idx):
     global aug_cost, obj, vehicles, available
 
@@ -218,12 +235,14 @@ def relocate_move(customer_1, vehicle_1, vehicle_2, aug_cost_new, obj_new, old_i
 
 
 # find best move
+# tìm bước di chuyển relocate tốt nhất
 def get_relocate_move():
-    # relocate move
     min_delta = float('inf')
     min_vehicle_old = []
     min_vehicle_new = []
     min_customer = []
+
+    # thử tất cả các bước di chuyển có thể
     for i in range(vehicle_count + 1):
         for customer in vehicles[i]:
             for j in range(vehicle_count):
@@ -244,6 +263,7 @@ def get_relocate_move():
                         min_vehicle_old.append(i)
                         min_vehicle_new.append(j)
 
+    # nếu bước di chuyển lại giảm aug_cost
     if min_delta < 0:
         idx = random.randrange(0, len(min_customer), 1)
         customer_idx = min_customer[idx]
@@ -254,7 +274,11 @@ def get_relocate_move():
         return -1, -1, -1, (-1, -1, -1, -1)
 
 
-# 2opt
+# các hàm tương tự như relocate nhưng dành cho di chuyển 2opt
+# get_'name'_move_cost(): lấy giá trị mục tiêu nếu như thực hiện di chuyển
+# 'name'_move(): thực hiện bước di chuyển
+# get_'name'_move(): tìm bước di chuyển tốt nhất
+# di chuyển 2opt: đảo ngược thứ tự thăm trên vehicle_idx trong khoảng [customer_1, customer_2]
 def get_2opt_move_cost(customer_1, customer_2, vehicle_idx):
     N = len(vehicles[vehicle_idx])
     u = -1
@@ -317,7 +341,8 @@ def get_2opt_move():
         return -1, -1, -1, (-1, -1, -1, -1)
 
 
-# exchange
+# di chuyển exchange
+# đổi vị trí của customer_1 trong vehicle_1 với customer_2 trong vehicle_2
 def get_exchange_move_cost(customer_1, customer_2, vehicle_1, vehicle_2):
     if available[vehicle_1] < customers[customer_2].demand - customers[customer_1].demand \
             or available[vehicle_2] < customers[customer_1].demand - customers[customer_2].demand:
@@ -407,7 +432,10 @@ def get_exchange_move():
         return -1, -1, -1, -1, (-1, -1, -1, -1)
 
 
-# cross
+# di chuyển cross
+# chia thứ tự thăm ở vehicle_1 và vehicle_2 thành 2 phần, lần lượt ở vị trí của customer_1 và customer_2
+# ghép phần 1 của vehicle_1 với phần 2 của vehicle_2
+# ghép phần 1 của vehicle_2 với phần 2 của vehicle_1
 def get_cross_move_cost(customer_1, customer_2, vehicle_1, vehicle_2):
     obj_new = obj
     aug_cost_new = aug_cost
@@ -518,6 +546,7 @@ def get_cross_move():
 
 
 # choose best 1 of those move
+# tìm bước di chuyển tốt nhất trong tất các các cách di chuyển trên
 def get_move():
     cus_r, veh_1_r, veh_2_r, (aug_r, obj_r, u_r, v_r) = get_relocate_move()
     cus_1_o, cus_2_o, veh_o, (aug_o, obj_o, u_o, v_o) = get_2opt_move()
@@ -551,6 +580,7 @@ def get_move():
 
 
 # make a move
+# thực hiện bước di chuyển
 def move(move_type, cus_1, cus_2, veh_1, veh_2, aug_cost_new, obj_new, u, v):
     if move_type == 1:
         relocate_move(cus_1, veh_1, veh_2, aug_cost_new, obj_new, u, v)
@@ -567,6 +597,8 @@ def move(move_type, cus_1, cus_2, veh_1, veh_2, aug_cost_new, obj_new, u, v):
 
 
 # add penalty
+# tăng giá trị phạt với features có util cao nhất
+# util = dis[u][v] / (1 + penalty[u][v]) nếu u và v đứng cạnh nhau trong 1 xe
 def add_penalty():
     global penalty, aug_cost
 
@@ -575,7 +607,7 @@ def add_penalty():
     for i in range(vehicle_count + 1):
         l = len(vehicles[i])
         for j in range(1, l - 1):
-            util = dis[vehicles[i][j]][vehicles[i][j - 1]]
+            util = dis[vehicles[i][j]][vehicles[i][j - 1]] / (1 + penalty[vehicles[i][j]][vehicles[i][j - 1]])
             if max_util < util:
                 max_util = util
                 max_edge.clear()
@@ -584,6 +616,7 @@ def add_penalty():
                 max_edge.append([vehicles[i][j], vehicles[i][j - 1]])
     for [i, j] in max_edge:
         penalty[i][j] += 1
+        penalty[j][i] += 1
         aug_cost += lamda
 
 
@@ -614,8 +647,6 @@ def search(max_iter):
         # for v in range(0, vehicle_count + 1):
         #     outputData += ' '.join([str(customer) for customer in vehicles[v]]) + '\n'
         # print(outputData)
-
-
     return best_obj, best_solution
 
 

@@ -6,24 +6,25 @@ Point = namedtuple("Point", ['x', 'y'])
 Facility = namedtuple("Facility", ['index', 'setup_cost', 'capacity', 'location'])
 Customer = namedtuple("Customer", ['index', 'demand', 'location'])
 
-# GLOBAL VARS
+# GLOBAL VARIABLES
 ## problem parameter
 facility_count = 0
 customer_count = 0
 facilities = []
 customers = []
-dis = [[0.0 for j in range(facility_count)] for i in range(customer_count)]
-available = []
+dis = [[0.0 for j in range(facility_count)] for i in range(customer_count)]  # khoang cach tu facility den customer
+available = []  # suc chua con lai cua moi facility
 
 # GLS parameter
-features = [[facilities[j].setup_cost for j in range(facility_count)] for i in range(customer_count)]
-penalty = [[0 for _ in range(facility_count)] for _ in range(customer_count)]
-lamda = 0
+features = [[facilities[j].setup_cost for j in range(facility_count)] for i in range(customer_count)]  # đặc trưng đánh giá của mỗi bước di chuyển
+penalty = [[0 for _ in range(facility_count)] for _ in range(customer_count)]  # giá trị phạt của mỗi bước di chuyển, khởi tạo = 0
+lamda = 0  # trọng số của giá trị phạt
 
-dd = [0 for _ in range(facility_count)]
-solution = [-1 for _ in range(customer_count)]
-obj = 0.0
-aug_cost = 0.0
+dd = [0 for _ in range(facility_count)]  # dd[i] đánh dấu số lượng customer sử dụng facility thứ i
+solution = [-1 for _ in range(customer_count)]  # kết quả
+obj = 0.0  # giá trị hàm mục tiêu
+aug_cost = 0.0  # hàm mục tiêu với giá trị phạt
+
 
 # calculate distance between 2 point
 def length(point1, point2):
@@ -33,6 +34,7 @@ def length(point1, point2):
 # Initialize the weight of penalty
 def init_lamda(cost, alpha):
     return alpha * cost / customer_count
+
 
 # init greedy solution
 def init_solution():
@@ -56,21 +58,57 @@ def init_solution():
             aug_cost += facilities[min_facility].setup_cost
 
 
-# get cost
+# khởi động lại tìm kiếm bằng một lời giải ngẫu nhiên
+def restart_search(cnt):
+    if cnt == 5:  # khởi động nhiều lần không được thì bỏ
+        return False
+    global obj, aug_cost, solution, available, dd
 
-# get new aug_cost and obj if solution[idx] = facility_new
+    obj = 0
+    aug_cost = 0
+    solution = [-1 for _ in range(customer_count)]
+    available = [facilities[j].capacity for j in range(facility_count)]
+    dd = [0 for _ in range(facility_count)]
+
+    # mỗi customer chọn một facility còn đủ sức chứa
+    for i in range(customer_count):
+        done = False
+        x = []
+        for j in range(facility_count):
+            if customers[i].demand <= available[j]:
+                x.append(j)
+        if len(x) == 0:
+            cnt_c = cnt + 1
+            return restart_search(cnt_c)
+
+        random_fac = random.randrange(0, len(x), 1)
+        random_fac = x[random_fac]
+        solution[i] = random_fac
+        available[random_fac] -= customers[i].demand
+        dd[random_fac] += 1
+        obj += dis[i][random_fac]
+        aug_cost += dis[i][random_fac] + lamda * penalty[i][random_fac]
+        if dd[random_fac] == 1:
+            obj += facilities[random_fac].setup_cost
+            aug_cost += facilities[random_fac].setup_cost
+
+    return True
+
+
+# tính aug_cost and obj nếu gán solution[idx] = facility_new
 # @return aug_cost_new, obj_new
 def get_cost_move(idx, facility_new):
     global aug_cost, obj
     aug_cost_new = aug_cost
     obj_new = obj
 
+    # nếu solution[idx] == facility_new thì giá trị không đổi
     if solution[idx] == facility_new:
         return obj, aug_cost
 
     facility_old = solution[idx]
-    aug_diff = (0 - penalty[idx][facility_old] + penalty[idx][facility_new]) * lamda
-    diff = 0 - dis[idx][facility_old] + dis[idx][facility_new]
+    aug_diff = (0 - penalty[idx][facility_old] + penalty[idx][facility_new]) * lamda  # thay đổi của aug_cost nếu thực hiện di chuyển
+    diff = 0 - dis[idx][facility_old] + dis[idx][facility_new]  # thay đổi của obj nếu thực hiện bước di chuyển
 
     if dd[facility_old] == 1:
         diff -= facilities[facility_old].setup_cost
@@ -83,14 +121,17 @@ def get_cost_move(idx, facility_new):
     return aug_cost_new, obj_new
 
 
-# Select a customer, move it to a new facility.
+# Tìm kiếm bước di chuyển có aug_cost tốt nhất
 # @return aug_cost_new, obj_new, customer, facility
 def get_move():
     global aug_cost, obj
 
     min_delta = float('inf')
+    # tập (customer, facility) (bước di chuyển) làm delta nhỏ nhất
     min_delta_customers = []
     min_delta_facilities = []
+
+    # duyệt qua toàn bộ cặp customer, facility để thử
     for i in range(customer_count):
         for j in range(facility_count):
             if customers[i].demand <= available[j] and j != solution[i]:
@@ -105,7 +146,7 @@ def get_move():
                 elif delta == min_delta:
                     min_delta_customers.append(i)
                     min_delta_facilities.append(j)
-
+    # chỉ di chuyển bước làm giảm aug_cost
     if min_delta < 0:
         idx = random.randrange(0, len(min_delta_customers), 1)
         customer = min_delta_customers[idx]
@@ -115,7 +156,7 @@ def get_move():
         return (0, 0), -1, -1
 
 
-# make a move
+# thực hiện bước di chuyển tìm được
 def move(aug_cost_new, obj_new, customer, facility):
     global aug_cost, obj
     aug_cost = aug_cost_new
@@ -127,12 +168,12 @@ def move(aug_cost_new, obj_new, customer, facility):
     solution[customer] = facility
 
 
-# Penalize features with the maximum utility
+# Cập nhật giá trị phạt với các bước di chuyển có util cao nhất
 # util = features[cus][fac] / (1 + penalty[cus][fac])
 def add_penalty():
     global aug_cost
     max_util = - float('inf')
-    max_util_customers = []
+    max_util_customers = []  # tập bước di chuyển có util lớn nhất
     for i in range(customer_count):
         util = features[i][solution[i]] / (1 + penalty[i][solution[i]])
         if util > max_util:
@@ -141,6 +182,7 @@ def add_penalty():
             max_util_customers.append(i)
         elif util == max_util:
             max_util_customers.append(i)
+    # cập nhật giá trị phạt (tăng lên 1) với mỗi bước di chuyển có util lớn nhất
     for customer in max_util_customers:
         penalty[customer][solution[customer]] += 1
         aug_cost += lamda
@@ -155,13 +197,15 @@ def search(max_iter, alpha=0.05):
     best_solution = list(solution)
     for _ in range(max_iter):
         (aug_cost_new, obj_new), customer, facility = get_move()
-        if customer == -1:
+        if customer == -1:  # không tìm được bước di chuyển tốt hơn -> restart_search
             if lamda == 0:
                 lamda = init_lamda(obj, alpha)
             add_penalty()
             # reset search
-            break
-        else:
+            restart = restart_search(1)
+            if restart == False:
+                break
+        else:  # tìm được bước di chuyển tốt, cập nhật bước di chuyển và kết quả tốt nhất
             move(aug_cost_new, obj_new, customer, facility)
 
             if best_obj > obj:
@@ -170,7 +214,7 @@ def search(max_iter, alpha=0.05):
 
     return best_obj, best_solution
 
-
+# khởi tạo các biến của bài toán
 def init():
     global facility_count, customer_count, facilities, customers, features, penalty, dis, dd, solution, available
 
@@ -209,7 +253,7 @@ def solve_it(input_data):
     init()
 
     # solve
-    res_obj, res_solution = search(100000)
+    res_obj, res_solution = search(50000)
 
     # prepare the solution in the specified output format
     output_data = '%.2f' % res_obj + ' ' + str(0) + '\n'

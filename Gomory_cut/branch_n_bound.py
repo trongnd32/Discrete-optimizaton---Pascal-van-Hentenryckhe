@@ -6,6 +6,7 @@ from math import floor
 class Gomory:
     # init
     def __init__(self, A, b, c, d):
+        self.best_obj = -1000000000
         self.M = len(b)
         self.N = len(c)
         self.A = A
@@ -232,7 +233,7 @@ class Gomory:
         pivot_val = simplex_table[row][col]
 
         # other row
-        for i in range(basis_num + 2):
+        for i in range(basis_num + 1):
             if i != row:
                 coef = Fraction(-simplex_table[i][col], pivot_val)
                 for j in range(len(simplex_table[i])):
@@ -289,6 +290,7 @@ class Gomory:
                 break
 
         if idx == -1:
+            self.best_obj = max(self.best_obj, simplex_table[basis_num][len(simplex_table[0]) - 1])
             return simplex_table, basis, basis_num, simplex_table[basis_num][len(simplex_table[0]) - 1], 0
 
         simplex_table1 = copy.deepcopy(simplex_table)
@@ -316,7 +318,7 @@ class Gomory:
         bnb_var1 += 1
         basis_num1 += 1
 
-        print("add x[", basis1[idx], "] <=", value)
+        print("add x[", basis1[idx], "] <=", value, "best = ", self.best_obj)
         self.print_simplex_table(simplex_table1, basis1, basis_num1)
         ok1 = self.dual_simplex_bnb(simplex_table1, basis1, basis_num1)
         obj1 = -1000000000
@@ -324,11 +326,10 @@ class Gomory:
         bs_1 = []
         bsn_1 = 0
         done_1 = 0
-        if ok1:
+        if ok1 and self.best_obj < simplex_table1[basis_num1][len(simplex_table1[0]) - 1]:
             st_1, bs_1, bsn_1, obj1, done_1 = self.bnb(simplex_table1, basis1, basis_num1, bnb_var1)
 
         # branch 2: x[i] >= value + 1
-
         l = len(simplex_table2[idx])
         new_row2 = [Fraction(0) for _ in range(l + 1)]
         new_row2[basis2[idx]] = Fraction(1)
@@ -343,7 +344,7 @@ class Gomory:
         bnb_var2 += 1
         basis_num2 += 1
 
-        print("add x[", basis2[idx], "] >=", value+1)
+        print("add x[", basis2[idx], "] >=", value+1, "best = ", self.best_obj)
         self.print_simplex_table(simplex_table2, basis2, basis_num2)
 
         ok2 = self.dual_simplex_bnb(simplex_table2, basis2, basis_num2)
@@ -352,8 +353,18 @@ class Gomory:
         bs_2 = []
         bsn_2 = 0
         done_2 = 0
-        if ok2:
+        if ok2 and self.best_obj < simplex_table2[basis_num2][len(simplex_table2[0]) - 1]:
             st_2, bs_2, bsn_2, obj2, done_2 = self.bnb(simplex_table2, basis2, basis_num2, bnb_var2)
+
+        if done_1 == 0 and done_2 == 0:
+            if obj1 > obj2:
+                return st_1, bs_1, bsn_1, obj1, done_1
+            else:
+                return st_2, bs_2, bsn_2, obj2, done_2
+        if done_1 == 0:
+            return st_1, bs_1, bsn_1, obj1, done_1
+        if done_2 == 0:
+            return st_2, bs_2, bsn_2, obj2, done_2
 
         if obj1 > obj2 and obj1 != -1000000000:
             return st_1, bs_1, bsn_1, obj1, done_1
@@ -421,6 +432,7 @@ if __name__ == '__main__':
     # ]
     # b = [8, 12]
     # c = [3, 1]
+    # d = [1,1]
 
     # A = [
     #     [2, 1, 0],
@@ -428,6 +440,7 @@ if __name__ == '__main__':
     # ]
     # b = [2, 5]
     # c = [3, 2, 4]
+    # d = [1,1,1]
 
     # A = [
     #     [3, 2, 1,1,0,0],
@@ -436,8 +449,8 @@ if __name__ == '__main__':
     # ]
     # b = [10, 15, 4]
     # c = [2, 3, 4,0,0,0]
+    # d = [1,1,1,1,0,0]
 
-    # c = [-2,-1, -1, 0,0]
     # A = [
     #     [1,1,1,1,1],
     #     [1,1,2,2,2],
@@ -445,14 +458,16 @@ if __name__ == '__main__':
     #     [0,0,1,1,1]
     # ]
     # b = [5,8,2,3]
+    # c = [-2,-1, -1, 0,0]
+    # d = [1,1,1,0,0]
 
-    A = [
-        [3,2,1,0],
-        [-3,2,0,1]
-    ]
-    b=[6,0]
-    c=[0,1,0,0]
-    d = [1,1,1,1]
+    # A = [
+    #     [3,2,1,0],
+    #     [-3,2,0,1]
+    # ]
+    # b=[6,0]
+    # c=[0,1,0,0]
+    # d = [1,1,1,1]
 
     # A = [
     #     [1,1,-1,0,0],
@@ -480,13 +495,13 @@ if __name__ == '__main__':
     # c = [-1, -1, 0, 0]
     # d = [1, 1, 1, 0]
 
-    # A = [
-    #     [Fraction(4,100), Fraction(6, 100), Fraction(5, 100), 1],
-    #     [Fraction(7, 100), 0, Fraction(2, 100), 1]
-    # ]
-    # b = [500, 300]
-    # c = [3, 2, Fraction(5, 2), 0]
-    # d = [1, 1, 0, 0]
+    A = [
+        [Fraction(4, 100), Fraction(6, 100), Fraction(5, 100), 1],
+        [Fraction(7, 100), 0, Fraction(2, 100), 1]
+    ]
+    b = [500, 300]
+    c = [3, 2, Fraction(5, 2), 0]
+    d = [1, 1, 0, 0]
 
     gomory = Gomory(A, b, c, d)
     gomory.run_bnb()
